@@ -5,4 +5,4 @@ Data: I collected data using a Google form, which can be seen with this link (ht
 
 Methodology: The Poisson Maximum Likelihood estimation method was chosen, due to its ability to capture count data effectively. Under this method, the mean should be relatively close to the variance, which is generally the case with fertility data. The Poisson distribution is appropriate for non-negative integer data and is particularly useful when data has a right-skewed distribution, which is often the case with fertility data. The Negative Binomial model was used since the count data exhibits underdispersion. The NB model account is useful where the assumption of the Poisson model is violated, that assumption being the expected value being equal to the variance. 
 
-This repository includes the R markdown file and the HTML file.
+This repository includes the R markdown file, HTML file and Power BI report.
