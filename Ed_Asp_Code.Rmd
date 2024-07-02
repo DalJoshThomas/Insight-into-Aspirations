@@ -1,0 +1,396 @@
+---
+title: "Insights into Aspirations: The Impact of Educational Aspirations on Women's Desired Family Size"
+author: "Dalkeith Thomas"
+date: "2024-01-06"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This study seeks to address the question of whether women with heightened levels of educational aspirations exhibit a preference for smaller family sizes in contrast to women with more modest educational aspirations. Additionally, the research aims to explain the relationship between education and various demographic factors on the number of children women desire to have. The framework presented herein takes a future-oriented approach. Unlike other models that incorporate existing education and its influence on fertility, this model delves into the realm of educational aspirations and its potential impact on fertility. This approach, while bearing certain advantages, is not without its limitations. Notably, it acknowledges the inherent unpredictability of the future, with an individual’s decisions and responses being contingent upon their current perspectives. However, it also offers explanatory value, as it pertains to the newer generation of parents and members of society who grapple with present decisions and anticipate forthcoming challenges. It encompasses the choice of potentially investing in further education, which could conceivably exert an influence on family size. In this context, the researcher posits that educational aspirations will emerge as a significant and negative determinant of the number of children women desire to have. This contribution augments the ongoing discourse but within the specific context of a Small Island Developing State.
+
+
+## Table of Contents
+
+1.Importing Libraries
+
+2.Loading Data
+
+3.Data Cleaning, Feature Engineering and Diagnostic Tests
+
+4.Data Visualization
+
+5.Econometric Analysis
+
+6.Discussion and Conclusion
+
+## 1.Importing Libraries
+
+```{r message=FALSE, warning=FALSE}
+library(readxl)#To load the data
+library(ggplot2)#For Data Visualization
+library(car)#For component and residual plots
+library(dplyr)#For Data visualization
+library(corrplot)#For Data visualization
+library(MASS)#For Negative Binomial Distribution
+```
+
+## 2.Loading Data
+Data was collected from women in Jamaica, using this electronic form : <https://forms.gle/zpyB4VtDkH2W7iMd7>
+
+```{r message=FALSE, warning=FALSE}
+#Loading the dataset
+Ed_Asp_Data <- read_excel("C:/Users/Dalkeith J Thomas/OneDrive - The University of the West Indies, Mona Campus/Econ Dev 1 Project/First Iterations Folder/Educational Aspirations Data.xlsx", 
+    sheet = "Worksheet for R1 Final")
+View(Ed_Asp_Data)
+```
+
+## 3.Data Cleaning
+The data was cleaned initially in excel, however it will be double-checked here.
+
+
+Firstly,I am going to create a dictionary for the categorical variables which makes the steps easier to follow
+```{r}
+# Creating lists for various categorical variables
+or_dict <- list(Homosexual = 0, Bisexual = 1, Heterosexual = 2)
+ed_dict <- list(`Primary` = 1, `High School Diploma` = 2, `Bachelors Degree` = 3, `Masters Degree` = 5, `Doctorate of Philosophy` = 7)
+health_dict <- list(Yes = 0, No = 1) #Captures if respondents have underlying health issues
+res_dic <- list(Urban = 0, Rural = 1)#Captures where respondents resided for most of their life
+r_status_dic <- list(
+  Widowed = 1,
+  Single = c(2, 4, 6),
+  Divorced = 3,
+  Married = c(5, 8),
+  `Common Law Marriage` = 7
+)
+religion_dic<-list(Yes = 1, No = 0) #Captures religiosity of respondents
+emp_dic<-list(Employed = 0, Unemployed = 1)
+```
+
+
+Secondly, the check to see if we have columns with N/As.
+```{r}
+# Counting NA values per column
+na_counts <- colSums(is.na(Ed_Asp_Data))
+
+print(na_counts)
+```
+Thirdly, the check to ensure the age range is appropriate.
+```{r}
+# To ensure the age range is appropriate
+age_range<-range(Ed_Asp_Data$Age)
+
+#Print the age range
+print(age_range)
+```
+
+Fourthly, we check to ensure the data types are appropriate for the variables
+```{r}
+str(Ed_Asp_Data)
+```
+Fifthly, we check the summary statistics for the different variables
+```{r}
+summary(Ed_Asp_Data)
+```
+
+
+It is important to check the variance of the dependent variable, as this will determine the appropriateness of the selected model.
+```{r}
+#Check the Variance
+var_childnum<-var(Ed_Asp_Data$Child_num)
+
+#Print the result
+print(var_childnum)
+
+```
+The mean and standard deviation are relatively close, one could opt for a negative binomial regression to assist with under-dispersion, we can compare this with the typical Poisson model to see the Robustness of the Poisson regression model.
+
+## 4.Diagnostic Checks
+
+I will look at the number of unique values in the different categorical variables to ensure the quantity is sufficient.
+
+```{r}
+#Vector of categorical variable names
+cat_vars <- c("Ed_level", "h_issue", "sex_or", "res", "r_status", "Ed_Asp_Dex", "rel", "emp")
+
+# To Loop through each categorical variable
+for (var in cat_vars) {
+  # Count the number of unique values for the current variable
+  unique_values <- table(Ed_Asp_Data[[var]])
+  
+  # Print the result
+  cat("The number of unique values in", var, "is:\n")
+  print(unique_values)
+}
+
+```
+
+
+Due to the small sample size, I am going to drop the orientation variable. The vast majority of respondents fell into the Hetero category, as seen by the dictionary below.
+
+```{r}
+print(or_dict)
+```
+
+I will opt against the use of the orientation variable.
+To investigate the relationship status variable, I will first print the dictionary
+```{r}
+print(r_status_dic)
+```
+
+
+The reason single appears to have three keys is because it's divided into single, single and not seeing anyone and single but not married. Marriage also includes those who are married and residing together, in addition to those who are married and also separated. For purpose of analysis, since the aim is to discover how educational aspirations, affects the number of children women desire to have, I will be adding common law marriage with marriage, in addition to adding the divorced, widowed and single figures.
+
+```{r}
+# To recode the marriage and single variables
+Ed_Asp_Data$r_status_binary <- ifelse(Ed_Asp_Data$r_status %in% c(1, 2, 4, 6), 0, 1)
+```
+
+```{r}
+View(Ed_Asp_Data)
+```
+
+```{r}
+r_binary_unique_values <-table(Ed_Asp_Data$r_status_binary)
+cat("The number of unique values in the new relationship status variable is")
+print(r_binary_unique_values)
+
+```
+
+
+Next we check for Heteroskedasticity and Multicollinearity
+The Poisson distribution is characterized by the property that the mean and variance are equal, which means that the assumption of homoskedasticity (constant variance) is inherently satisfied.
+
+
+```{r}
+# To create a correlation matrix
+cor_matrix <- cor(Ed_Asp_Data)
+print(cor_matrix)
+# Create a correlation matrix heat map
+corrplot(cor_matrix, method = "color", tl.cex = 0.8, tl.col = "black", addCoef.col = "black")
+```
+
+The Age variable is strongly correlated with the binary relationship variable, thus I am going to drop the age variable.
+
+#Data Visualization
+
+
+This pie chart shows the distribution of health issues among respondents.
+```{r}
+
+Ed_Asp_Data$h_issue_labels <- ifelse(Ed_Asp_Data$h_issue == 0, "yes", "no")
+
+# Count the frequency of each category in h_issue_labels
+h_issue_freq <- table(Ed_Asp_Data$h_issue_labels)
+
+# Creating the pie chart
+pie(h_issue_freq, main = "Pie Chart showing Heath Issue Distribution of Respondents", labels = paste(names(h_issue_freq), ": ", h_issue_freq, sep = ""), col = rainbow(length(h_issue_freq)))
+
+```
+
+
+This pie chart shows the distribution of religiosity among respondents.
+
+```{r}
+
+# To Replace numbers with corresponding labels
+Ed_Asp_Data$rel_labels <- ifelse(Ed_Asp_Data$rel == 1, "yes", "no")
+
+# Counting the frequency of each category in h_issue_labels
+religiousity_freq <- table(Ed_Asp_Data$rel_labels)
+
+custom_colors <- c("yellow", "purple")  
+
+# Creating a pie chart with custom colors
+pie(religiousity_freq, main = "Pie Chart Showing Religiousity of Respondents", labels = paste(names(religiousity_freq), ": ", religiousity_freq, sep = ""), col = custom_colors)
+
+```
+
+
+This bar graph shows the education level of the various respondents
+```{r}
+# Educational level dictionary
+ed_dict <- list(`Primary` = 1, `Secondary` = 2, `BSc` = 3, `MSc` = 5, `Phd` = 7)
+
+# To create a vector of zeroes to store the frequencies of each educational level
+ed_freq <- numeric(length(ed_dict))
+
+# Looping through the levels in ed_dict and count the frequency of each level in Ed_Asp_Data
+for (i in seq_along(ed_dict)) {
+  ed_freq[i] <- sum(Ed_Asp_Data$Ed_level == ed_dict[[i]])
+}
+
+# Making a bar plot
+barplot(ed_freq, 
+        names.arg = names(ed_dict), 
+        main = "Educational Levels", 
+        xlab = "Level", 
+        ylab = "Frequency", 
+        col = rainbow(length(ed_dict)))
+```
+
+
+
+These numbers indicate the respondents who are either pursuing or have completed the education level. The majority of respondents fell into the BSc category.
+
+
+
+Primary Education : 18,
+Secondary Education : 357,
+Bachelor of Science/Arts : 1272,
+Master of Science/Arts : 186,
+Doctorate of Philosophy : 9
+
+
+
+
+
+
+Next, we are going to run the model and see the most appropriate fit.
+```{r}
+# Fit Poisson regression model 1
+poisson_model <- glm(Child_num ~ Ed_level*Ed_Asp_Dex + h_issue + res + Exp + rel + emp + r_status_binary, data = Ed_Asp_Data, family = poisson())
+summary(poisson_model)
+#exp(coef(poisson_model))
+
+```
+
+```{r}
+pchisq(deviance(poisson_model), df.residual(poisson_model), lower.tail = FALSE)
+```
+
+
+
+Since the p-value is large, we will fail to reject the null hypothesis, suggesting that the fitted model is not significantly worse than a saturated model, indicating a good fit. However, we will still make adjustments to get a better fit.
+
+
+```{r}
+# Fit Poisson regression model 2
+poisson_model2 <- glm(Child_num ~ Ed_level*Ed_Asp_Dex + h_issue + res + rel + emp + r_status_binary, data = Ed_Asp_Data, family = poisson())
+summary(poisson_model2)
+
+```
+
+```{r}
+pchisq(deviance(poisson_model2), df.residual(poisson_model), lower.tail = FALSE)
+```
+
+
+
+
+```{r}
+# Fit Poisson regression model 3
+poisson_model3 <- glm(Child_num ~ Ed_level*Ed_Asp_Dex + h_issue + rel + emp, data = Ed_Asp_Data, family = poisson())
+summary(poisson_model3)
+
+```
+
+```{r}
+pchisq(deviance(poisson_model), df.residual(poisson_model), lower.tail = FALSE)
+```
+
+```{r}
+# Fit Poisson regression model 4
+poisson_model4 <- glm(Child_num ~ Ed_level*Ed_Asp_Dex + h_issue + rel + Ed_Asp_Dex*emp, data = Ed_Asp_Data, family = poisson())
+summary(poisson_model4)
+```
+
+```{r}
+# Fit Poisson regression model 5
+poisson_model5 <- glm(Child_num ~ Ed_level*Ed_Asp_Dex + h_issue + rel , data = Ed_Asp_Data, family = poisson())
+summary(poisson_model5)
+```
+
+```{r}
+pchisq(deviance(poisson_model5), df.residual(poisson_model5), lower.tail = FALSE)
+```
+
+
+
+I am going to utilize model #5, however recall that we had a slight issue with under dispersion. Thus, I am going to utilize, a negative binomial model to deal with under dispersion.
+
+```{r message=FALSE, warning=FALSE}
+model_nb <- glm.nb(Child_num ~ h_issue + rel + Ed_Asp_Dex*Ed_level, data = Ed_Asp_Data)
+summary(model_nb)
+```
+
+```{r}
+pchisq(deviance(model_nb), df.residual(model_nb), lower.tail = FALSE)
+```
+
+
+
+
+The standard errors and the coefficients, between both models are very similar when underdispersion is taken into account(Negative Binomial) and when it is not taken into account(Poisson model). As stated prior, the Poisson model is quite robust.
+
+
+I also want to answer the aspirations question directly,thus I am going to create data subsets for each of the different classes of aspirations, recall that the median of the Educational Aspirations is 10 and the quartiles are 7 and 12 respectively. I am going to create a subset of Aspirations greater than or equal to 12 as a high Aspirations subset, greater than 7 and below 12 as moderate aspirations and less than or equal to 7 as low aspirations.
+
+```{r warning=FALSE}
+#High Aspirations Dummy
+Ed_Asp_Data$Ed_Asp_Dex_High <- as.integer(Ed_Asp_Data$Ed_Asp_Dex >= 12)
+
+#Moderate Aspirations Dummy
+Ed_Asp_Data$Ed_Asp_Dex_Med <- as.integer(Ed_Asp_Data$Ed_Asp_Dex >7 & Ed_Asp_Data$Ed_Asp_Dex < 12)
+
+#Low Aspirations Dummy
+Ed_Asp_Data$Ed_Asp_Dex_Low <- as.integer(Ed_Asp_Data$Ed_Asp_Dex <= 7)
+```
+
+Three dummy variables were created.
+
+
+```{r}
+#To view the updated data set
+View(Ed_Asp_Data)
+```
+
+```{r}
+poisson_model_high <- glm(Child_num ~ Ed_level*Ed_Asp_Dex_High + h_issue + rel , data = Ed_Asp_Data, family = poisson())
+summary(poisson_model_high)
+```
+
+```{r}
+poisson_model_mod <- glm(Child_num ~ Ed_level*Ed_Asp_Dex_Med + h_issue + rel , data = Ed_Asp_Data, family = poisson())
+summary(poisson_model_mod)
+```
+```{r}
+poisson_model_low <- glm(Child_num ~ Ed_level*Ed_Asp_Dex_Low + h_issue + rel , data = Ed_Asp_Data, family = poisson())
+summary(poisson_model_low)
+```
+## Discussion
+Education level remained a consistently significant and negative factor across all three aspiration variations of the model. This suggests a robust association between educational attainment and desired family size. Notably, the research reveals varying coefficients for different educational aspiration groups, with the largest coefficient associated with the high educational aspirations group and the smallest with the low educational aspirations group.
+
+Specifically there exists a positive association at lower aspiration levels, with low aspirations every 2 unit increase in the aspirations
+level leads to the desire to have 1 more child.Whereas a negative association at higher aspiration levels, where for every 1 unit increase in the aspirations level is associated with a 0.41 decrease in the number of children women desire
+    
+These findings emphasize the substantial returns to education in modern economies. The negative relationship between education and desired family size implies that individuals view education as an investment with significant opportunity costs. Pursuing education, especially at advanced levels, demands substantial time and effort. This often involves delayed entry into the workforce, which limits, albeit temporarily, one’s earnings and the ability to provide for a family. Therefore, this investment represents a deliberate choice individuals make, signaling a trade-off between educational pursuits and the decision to have children.
+
+The results suggest that as education levels increase, individuals may undergo a shift in preferences regarding family size. Beyond economic considerations, they may prioritize aspects of family life. This may manifest as a focus on providing a superior education for their children and ensuring they enjoy a high standard of living. The decision to have fewer children might be a strategic response to these evolving priorities that accompany higher educational attainment.
+
+Furthermore, this suggests that the connection between education level and the inclination for children is contingent upon the level of aspirations. It is conceivable that women possessing both high aspirations and a high level of education harbour distinct attitudes or prioritize differently, influencing their desired number of children in contrast to women possessing only one of these characteristics.  For those with high educational attainment, the pursuit of educational aspirations may not be perceived as an impediment to the number of children they wish to have, hence the positive interaction coefficient.
+
+Moreover,if women have reached a particular educational milestone where they experience satisfaction not only in terms of financial remuneration but also in personal fulfillment, the motivation to pursue additional education may diminish. In such instances, individuals may choose alternative routes to achieve contentment, for example by the establishment of a family. This underscores the diverse ways in which individuals seek fulfillment beyond the traditional educational and career trajectories, emphasizing the multifaceted nature of personal contentment.
+
+As one would expect, religiosity exhibits a positive correlation with the envisioned number of children women desire. The tenets of religious teachings place significant emphasis on familial values, procreation, and the sanctity of life. Consequently, individuals deeply rooted in religious beliefs often perceive the act of having more children as not only a personal choice but also a religious obligation, assisting with the growth of their personal faith.
+
+
+## Conclusion
+  In conclusion, the study has shed light on the factors influencing the number of children women desire. The analysis revealed that education was inversely related to fertility preferences, in all three models. Moreover, there was a negative and significant association between educational aspirations and fertility preferences. However, when combining the effects of high aspirations with high levels of education, the researcher found a positive relationship between said variable and fertility preferences. 
+  
+## Policy Recommendations
+       
+
+In formulating policy recommendations, it is imperative to ensure that the proposed policies not only foster high educational attainment but also contribute to favorable fertility rates, recognizing both as pivotal elements for sustained economic growth and development. The underpinning theories of the quantity-quality model and life course perspective accurately describe the findings, necessitating policies that mitigate the opportunity cost of childbearing while concurrently enabling the provision of a higher standard of living for their children.
+       
+Firstly, governmental initiatives can encourage universities to adopt flexible educational policies tailored to the needs of women who prioritize education and having children. This encompasses the introduction of part-time study options, online course offerings, and extended timelines for completing educational programs. Such measures aim to empower women to pursue their educational objectives without succumbing to pressure to defer family planning.
+
+Secondly, government intervention can manifest in the provision of financial support, scholarships, or incentivization programs specifically designed for women undertaking higher education. This strategic approach seeks to alleviate the financial constraints associated with educational pursuits, rendering it more feasible for women to integrate their academic pursuits with considerations of family planning.
+
+Finally, the government can play a pivotal role in instituting supportive workplace policies that cater to the transitional phase from education to the workforce. Policies encompassing flexible work hours, remote work options, and family leave not only accommodate women's commitment to education and career development but also facilitates the integration of their professional and familial responsibilities. 
+
+In summation, the outlined policy recommendations underscore the dual importance of promoting educational advancement and favourable fertility rates. By addressing the specific needs of women who value education, these proposals aim to cultivate an environment where individuals can concurrently achieve their educational aspirations and navigate family planning.
